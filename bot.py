@@ -17,7 +17,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler, 
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -95,6 +95,68 @@ COPY = {
 }
 
 # =========================
+# Access Control (Allow-list)
+# =========================
+# Set env var: ALLOWED_USER_IDS="111111111,222222222"
+raw_ids = os.getenv("ALLOWED_USER_IDS", "1423807625,6520490787").strip()
+
+# If you prefer hard-coding, uncomment and edit:
+# raw_ids = "111111111,222222222"
+
+def _parse_ids(raw: str):
+    ids = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if part:
+            try:
+                ids.add(int(part))
+            except ValueError:
+                pass
+    return ids
+
+ALLOWED_USER_IDS = _parse_ids(raw_ids)
+
+# Contact handle used in the denial message button
+CONTACT_HANDLE = "THe_vK_3"
+
+COPY["denied"] = (
+    "⛔ *Access Denied!*\n"
+    "You are not authorized to use this bot.\n\n"
+    f"✉️ Contact @{CONTACT_HANDLE} for access!"
+)
+
+def is_authorized(update: Update) -> bool:
+    user = update.effective_user
+    if not user:
+        return False
+    # If ALLOWED_USER_IDS is empty, allow everyone (dev-friendly).
+    # To deny everyone unless listed, replace with: return user.id in ALLOWED_USER_IDS
+    return (not ALLOWED_USER_IDS) or (user.id in ALLOWED_USER_IDS)
+
+def require_auth(handler_fn):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not is_authorized(update):
+            try:
+                kb = InlineKeyboardMarkup.from_row([
+                    InlineKeyboardButton(
+                        text=f"Contact @{CONTACT_HANDLE}",
+                        url=f"https://t.me/{CONTACT_HANDLE}"
+                    )
+                ])
+                target = (
+                    (update.effective_message or (update.callback_query and update.callback_query.message))
+                )
+                if target:
+                    await target.reply_text(
+                        COPY["denied"], parse_mode=ParseMode.MARKDOWN, reply_markup=kb
+                    )
+            except Exception:
+                pass
+            return
+        return await handler_fn(update, context)
+    return wrapper
+
+# =========================
 # Session storage
 # =========================
 class Item:
@@ -120,47 +182,30 @@ SESSIONS: Dict[tuple, Session] = {}
 # =========================
 # Utilities
 # =========================
-
 def session_key(chat: Chat, user_id: int) -> tuple:
     return (chat.id, user_id)
 
 def safe_filename(name: str) -> str:
-    # Normalize whitespace and strip dangerous chars for sorting display (not used to save a file)
     name = re.sub(r"\s+", " ", name or "").strip()
     if not name:
         name = "unnamed"
     return name
 
 def infer_name_from_message(msg: Message) -> str:
-    """
-    Derive a 'filename' for sorting if the Telegram payload doesn't include one (e.g., photos).
-    Priority: document.file_name, video.file_name, audio.file_name, animation.file_name, else fallback.
-    """
-    # Documents (PDF, zip, etc.)
     if msg.document and msg.document.file_name:
         return safe_filename(msg.document.file_name)
-
-    # Video
     if msg.video and msg.video.file_name:
         return safe_filename(msg.video.file_name)
-
-    # Audio
     if msg.audio and msg.audio.file_name:
         return safe_filename(msg.audio.file_name)
-
-    # Animation (GIF)
     if msg.animation and msg.animation.file_name:
         return safe_filename(msg.animation.file_name)
 
-    # Voice messages will have no name
-    # Photos never have a file_name; prefer caption if present
     base = None
     if msg.caption:
         base = msg.caption
     else:
-        # Use a timestamp-based fallback to keep deterministic order pre-sort
         ts = (msg.date or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
-        # give a generic label by type
         if msg.photo:
             base = f"photo_{ts}"
         elif msg.voice:
@@ -171,18 +216,12 @@ def infer_name_from_message(msg: Message) -> str:
     return safe_filename(base)
 
 def natural_sort_key(s: str):
-    """
-    Natural sort (case-insensitive): splits numbers and words so "file2" < "file10".
-    """
     return [
         int(text) if text.isdigit() else text.lower()
         for text in re.findall(r"\d+|\D+", s)
     ]
 
 def is_supported_media(msg: Message) -> Optional[str]:
-    """
-    Return a simple type label if message carries a supported file, else None.
-    """
     if msg.document:
         return "document"
     if msg.photo:
@@ -200,7 +239,7 @@ def is_supported_media(msg: Message) -> Optional[str]:
 # =========================
 # Handlers
 # =========================
-
+@require_auth
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup.from_row([
         InlineKeyboardButton("Start Sorting", callback_data="cta_first"),
@@ -213,22 +252,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.effective_message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
+@require_auth
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
         COPY["help"] + f"\n\n_{COPY['footer_cta']}_",
         parse_mode=ParseMode.MARKDOWN
     )
 
+@require_auth
 async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "cta_first":
-        # simulate /first
-        update._effective_message = query.message  # type: ignore
         await first_cmd(update, context)
     elif query.data == "cta_help":
         await query.message.reply_text(COPY["help"], parse_mode=ParseMode.MARKDOWN)
 
+@require_auth
 async def first_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -246,6 +286,7 @@ async def first_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
+@require_auth
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -257,6 +298,7 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     del SESSIONS[key]
     await update.effective_message.reply_text(COPY["cancel_ok"])
 
+@require_auth
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -264,13 +306,12 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sess = SESSIONS.get(key)
 
     if not sess or not sess.collecting:
-        # Ignore if not collecting, but guide the user
         return
 
     msg = update.effective_message
     media_type = is_supported_media(msg)
     if not media_type:
-        return  # silently skip non-file messages during capture
+        return
 
     try:
         inferred = infer_name_from_message(msg)
@@ -292,6 +333,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.exception("Error collecting media: %s", e)
         await msg.reply_text(COPY["error_generic"])
 
+@require_auth
 async def last_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -313,11 +355,8 @@ async def last_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
-    # Sort by filename (natural, case-insensitive)
     items_sorted = sorted(sess.items, key=lambda it: natural_sort_key(it.file_name))
 
-    # Forward (copy) back into the same chat in order
-    # Using copy_message preserves captions; forward_message shows "forwarded from"
     for it in items_sorted:
         try:
             await context.bot.copy_message(
@@ -325,15 +364,22 @@ async def last_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 from_chat_id=chat.id,
                 message_id=it.message_id,
             )
-            # a tiny pause to respect rate limits in large batches
             await asyncio.sleep(0.05)
         except Exception as e:
             log.error("Failed to copy message %s: %s", it.message_id, e)
 
-    # Close session
     del SESSIONS[key]
     await update.effective_message.reply_text(
         COPY["last_done"].format(count=count),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+# Optional: quickly get your Telegram user ID
+@require_auth
+async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    await update.effective_message.reply_text(
+        f"*Your Telegram user ID:* `{u.id}`",
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -353,11 +399,12 @@ def main():
     app.add_handler(CommandHandler("first", first_cmd))
     app.add_handler(CommandHandler("last", last_cmd))
     app.add_handler(CommandHandler("cancel", cancel_cmd))
+    app.add_handler(CommandHandler("whoami", whoami))  # optional
 
     # Inline button callbacks
     app.add_handler(CallbackQueryHandler(callback_query))
 
-    # Media collector
+    # Media collector (v21 filter names)
     media_filter = (
         filters.Document.ALL   # docs
         | filters.PHOTO        # images
@@ -366,13 +413,10 @@ def main():
         | filters.VOICE        # voice notes
         | filters.ANIMATION    # GIFs
     )
-    
     app.add_handler(MessageHandler(media_filter, handle_media))
-
 
     log.info("Starting bot...")
     app.run_polling(close_loop=False)
-
 
 if __name__ == "__main__":
     main()
