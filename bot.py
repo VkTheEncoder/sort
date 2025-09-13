@@ -17,6 +17,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler, 
     ContextTypes,
     filters,
 )
@@ -274,7 +275,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         inferred = infer_name_from_message(msg)
         item = Item(
-            message_id=msg.id,
+            message_id=msg.message_id,
             file_name=inferred,
             date_iso=(msg.date or datetime.now(timezone.utc)).isoformat(),
             msg_type=media_type,
@@ -353,11 +354,10 @@ def main():
     app.add_handler(CommandHandler("last", last_cmd))
     app.add_handler(CommandHandler("cancel", cancel_cmd))
 
-    # CTA buttons
-    app.add_handler(MessageHandler(filters.StatusUpdate.ANY, lambda *_: None))
-    app.add_handler(MessageHandler(filters.ALL & filters.UpdateType.CALLBACK_QUERY, callback_query))  # safety
+    # Inline button callbacks
+    app.add_handler(CallbackQueryHandler(callback_query))
 
-    # Media collector: documents/photos/videos/audio/voice/animation
+    # Media collector
     media_filter = (
         filters.Document
         | filters.PHOTO
@@ -370,6 +370,7 @@ def main():
 
     log.info("Starting bot...")
     app.run_polling(close_loop=False)
+
 
 if __name__ == "__main__":
     main()
