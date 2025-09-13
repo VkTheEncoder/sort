@@ -359,14 +359,16 @@ def main():
 
     # Media collector
     media_filter = (
-        filters.Document.ALL
-        | filters.PHOTO
-        | filters.Video
-        | filters.AUDIO
-        | filters.VOICE
-        | filters.ANIMATION
+        filters.Document.ALL   # docs
+        | filters.PHOTO        # images
+        | filters.VIDEO        # videos
+        | filters.AUDIO        # audio/music
+        | filters.VOICE        # voice notes
+        | filters.ANIMATION    # GIFs
     )
+    
     app.add_handler(MessageHandler(media_filter, handle_media))
+
 
     log.info("Starting bot...")
     app.run_polling(close_loop=False)
