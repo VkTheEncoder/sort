@@ -359,7 +359,7 @@ def main():
 
     # Media collector
     media_filter = (
-        filters.Document
+        filters.Document.ALL
         | filters.PHOTO
         | filters.Video
         | filters.AUDIO
