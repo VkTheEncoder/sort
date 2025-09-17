@@ -98,7 +98,7 @@ COPY = {
 # Access Control (Allow-list)
 # =========================
 # Set env var: ALLOWED_USER_IDS="111111111,222222222"
-raw_ids = os.getenv("ALLOWED_USER_IDS", "1423807625,6520490787").strip()
+raw_ids = os.getenv("ALLOWED_USER_IDS", "1423807625,6520490787,2096201372").strip()
 
 # If you prefer hard-coding, uncomment and edit:
 # raw_ids = "111111111,222222222"
